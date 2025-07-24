@@ -11,7 +11,6 @@ library(shiny)
 library(tidyverse)
 library(ggplot2)
 library(plotly)
-library(googledrive)
 
 #create function to import telemetry .dat files from each station google drive links and save to environment
 importdata <- function(station,file_id) {
