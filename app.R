@@ -13,27 +13,34 @@ library(ggplot2)
 library(plotly)
 library(googledrive)
 
+#create function to import telemetry .dat files from each station google drive links and save to environment
 importdata <- function(station,file_id) {
-  
+  #create google drive download link
   url <- paste0("https://drive.google.com/uc?export=download&id=", file_id)
 
   # Read and process
   dat <- read.csv(url, skip = 1) %>%
+    #remove top row
     slice(-c(1:2)) %>%
+    #PST datetime
     mutate(TIMESTAMP = as_datetime(TIMESTAMP, format = "%Y-%m-%d %H:%M:%S", tz = "America/Los_Angeles")) %>%
+    #make everything else numeric
     mutate(across(c(3, 5:20), ~as.numeric(.))) %>%
+    #select key columns
     dplyr::select(TIMESTAMP, FchlugL_Med, ODOsat_med, pH_Med, Turbidity_Med) %>%
+    #NA out some pre-review but incorrect data
     mutate(FchlugL_Med = ifelse(FchlugL_Med>1000,NA,FchlugL_Med),
            FchlugL_Med = ifelse(FchlugL_Med<0,NA,FchlugL_Med),
            pH_Med = ifelse(pH_Med<7,NA,pH_Med),
            ODOsat_med = ifelse(ODOsat_med<50,NA,ODOsat_med)
     )%>%
+    #rename columns
     set_names(c("Datetime", "Chl-a (µg/L)", "DO (% saturation)", "pH", "Turbidity (FNU)"))
   
   # Assign to global environment
   assign(station, dat, envir = .GlobalEnv)
 }
-
+#import each station
 importdata("SLM","1NRGzJTKUOb7MxyrFKvxwnaKX9sH_1Iij")
 importdata("SHL","1omJnHmqR4hi9tCvZKSkON0-UuqDI2OgW")
 importdata("SMB","10wL7cMNOli4lvygvcNw-y5gpESms31Tc")  # Example: "smbdata"
