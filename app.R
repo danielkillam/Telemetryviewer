@@ -50,12 +50,11 @@ ui <- fluidPage(
     sidebarPanel(
       selectInput("site", "Select Dataset:", choices = c("SLM", "SHL", "SMB")),
       selectInput("y", "Y-axis:", choices = c("Chl-a (µg/L)", "DO (% saturation)", "pH", "Turbidity (FNU)")),
-      dateRangeInput("daterange", "Select Date Range:",
-                     start = Sys.Date() - 14,
-                     end = Sys.Date(),
-                     min = Sys.Date() - 365,  # optional range limits
-                     max = Sys.Date(),
-                     format = "yyyy-mm-dd")
+      sliderInput("daterange", "Select Date Range:",
+                     min = min(as_date(SMB$Datetime),na.rm = TRUE),  # optional range limits
+                     max = max(as_date(SMB$Datetime),na.rm = TRUE),
+                     value = c(max(as_date(SMB$Datetime),na.rm = TRUE) - 14, max(as_date(SMB$Datetime),na.rm = TRUE)),
+                     timeFormat = "%Y-%m-%d")
     ),
     mainPanel(
       plotlyOutput("dataPlot",height="900px")
@@ -66,17 +65,20 @@ ui <- fluidPage(
 server <- function(input, output) {
   selected_data <- reactive({
     switch(input$site,
-           "SLM" = slmdata,
-           "SHL" = shldata,
-           "SMB" = smbdata)
+           "SLM" = SLM,
+           "SHL" = SHL,
+           "SMB" = SMB)
   })
   
   output$dataPlot <- renderPlotly({
     data <- selected_data()
     
+    start_date <- as.Date(input$daterange[1], origin = "1970-01-01")
+    end_date <- as.Date(input$daterange[2], origin = "1970-01-01")
+    
     filtered <- data %>%
-      filter(Datetime >= as.POSIXct(input$daterange[1]) &
-               Datetime <= as.POSIXct(input$daterange[2]))
+      filter(Datetime >= start_date &
+               Datetime <= end_date)
     
     p <- ggplot(filtered, aes(x = Datetime, y = .data[[input$y]])) +
       geom_line(color = "steelblue") +
