@@ -130,18 +130,25 @@ ui <- fluidPage(
   "))
   ),
   
-  titlePanel("Mooring telemetry data"),
+  #titlePanel("Mooring telemetry data"),
   sidebarLayout(
     sidebarPanel(
       "Click a station to change to that dataset",
-      leafletOutput("siteMap", height = 400),
-      selectInput("site", "Select Dataset:", choices = c("SLM", "SHL", "SMB")),
+      leafletOutput("siteMap", height = 200),
+      selectInput("site", "Select Dataset:", choices = c("SLM", "SHL", "SMB"), selected = "SHL"),
       selectInput("y", "Y-axis:", choices =c("Chl-a (µg/L)", "DO (% saturation)","Temperature (°C)", "pH", "Turbidity (FNU)", "Salinity (PSU)","Nitrate + nitrate (µMol/L)")),
       sliderInput("daterange", "Select Date Range:",
                   min = startdate,  # optional range limits
                   max = enddate,
                   value = c(enddate - 14, enddate),
                   timeFormat = "%Y-%m-%d"),
+      selectInput("y2", "Second Y-axis (optional):",
+                  choices = c("None", "Chl-a (µg/L)", "DO (% saturation)",
+                              "Temperature (°C)", "pH", "Turbidity (FNU)",
+                              "Salinity (PSU)", "Nitrate + nitrate (µMol/L)"),
+                  selected = "None"),
+      numericInput("ymin", "Y-axis minimum (primary plot):", value = NA),
+      numericInput("ymax", "Y-axis maximum (primary plot):", value = NA),
       actionButton("bookmarkBtn", "Bookmark Current View")
     ),
     mainPanel(
@@ -188,20 +195,39 @@ server <- function(input, output,session) {
     data <- selected_data()
     
     start_date <- as.Date(input$daterange[1], origin = "1970-01-01")
-    end_date <- as.Date(input$daterange[2], origin = "1970-01-01")
+    end_date   <- as.Date(input$daterange[2], origin = "1970-01-01")
     
     filtered <- data %>%
-      filter(Datetime >= start_date &
-               Datetime <= end_date)
+      filter(Datetime >= start_date & Datetime <= end_date)
     
-    p <- ggplot(filtered, aes(x = Datetime, y = .data[[input$y]])) +
+    # First plot
+    p1 <- ggplot(filtered, aes(x = Datetime, y = .data[[input$y]])) +
       geom_line(color = "steelblue") +
-      labs(title = paste("Plot of", input$y, "over Time at", input$site),
-           x = "Time", y = input$y) +
+      labs(x = element_blank(), y = input$y) +
       theme_minimal()
     
-    ggplotly(p)
+    if (!is.na(input$ymin) || !is.na(input$ymax)) {
+      p1 <- p1 + coord_cartesian(ylim = c(input$ymin, input$ymax))
+    }
+    
+    p1 <- ggplotly(p1)
+    
+    # Second plot (only if chosen)
+    if (input$y2 != "None") {
+      p2 <- ggplot(filtered, aes(x = Datetime, y = .data[[input$y2]])) +
+        geom_line(color = "darkred") +
+        labs(x = element_blank(), y = input$y2) +
+        theme_minimal()
+      
+      p2 <- ggplotly(p2)
+      
+      # Stack vertically
+      subplot(p1, p2, nrows = 2, shareX = TRUE, titleY = TRUE)
+    } else {
+      p1
+    }
   })
+  
   
   # Bookmark logic
   observeEvent(input$bookmarkBtn, {
