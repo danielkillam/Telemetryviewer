@@ -135,7 +135,7 @@ ui <- fluidPage(
     sidebarPanel(
       "Click a station to change to that dataset",
       leafletOutput("siteMap", height = 200),
-      selectInput("site", "Select Dataset:", choices = c("SLM", "SHL", "SMB"), selected = "SHL"),
+      selectInput("site", "Select Dataset:", choices = c("SLM", "SHL", "SMB"), selected = "SMB"),
       selectInput("y", "Y-axis:", choices =c("Chl-a (µg/L)", "DO (% saturation)","Temperature (°C)", "pH", "Turbidity (FNU)", "Salinity (PSU)","Nitrate + nitrate (µMol/L)")),
       sliderInput("daterange", "Select Date Range:",
                   min = startdate,  # optional range limits
