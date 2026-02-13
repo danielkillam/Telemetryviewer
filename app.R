@@ -16,7 +16,7 @@ library(sf)
 library(leaflet)
 
 coords<-read.csv("MooredSensor_Coordinates.csv")%>%
-  filter(Abbrev %in% c("SHL","SMB","SLM"))%>%
+  filter(Abbrev %in% c("SHL","SMB","SLM","ALA"))%>%
   st_as_sf(coords= c(x="Longitude",y="Latitude"),crs=4269)
 
 
@@ -30,7 +30,7 @@ importdata <- function(station, file_id) {
     # remove top row
     slice(-c(1:2)) %>%
     # PST datetime
-    mutate(TIMESTAMP = as_datetime(TIMESTAMP, format = "%Y-%m-%d %H:%M:%S", tz = "America/Los_Angeles")) %>%
+    mutate(TIMESTAMP = as_datetime(TIMESTAMP, format = "%Y-%m-%d %H:%M:%S", tz = "Etc/GMT+8")) %>%
     # make everything else numeric
     mutate(across(c(3, 5:20), ~as.numeric(.)))
   
@@ -85,10 +85,75 @@ importdata <- function(station, file_id) {
   assign(station, dat, envir = .GlobalEnv)
 }
 
+importdata_ala <- function(station, file_id) {
+  # create google drive download link
+  url <- paste0("https://drive.google.com/uc?export=download&id=", file_id)
+  
+  # Read and process
+  dat <- read.csv(url, skip = 1) %>%
+    # remove top row
+    slice(-c(1:2)) %>%
+    # PST datetime
+    mutate(TIMESTAMP = as_datetime(TIMESTAMP, format = "%Y-%m-%d %H:%M:%S", tz = "Etc/GMT+8")) %>%
+    # make everything else numeric
+    mutate(across(c(2:28), ~as.numeric(.)))
+  
+  # Base column selection
+  base_cols <- c("TIMESTAMP", "Chl_ugL","Temp","DO_prct", "pH", "Turb_FNU", "Sal_psu", "fDOM_RFU")
+  
+  #names of other parameters
+  match_cols <- c("TIMESTAMP", "FchlugL_Med","WTemp_Med","ODOsat_med", "pH_Med", "Turbidity_Med", "Sal_Med", "RelativeFDOM_Med")
+  
+  dat <- dat %>%
+    # Select key columns (conditional)
+    dplyr::select(all_of(base_cols)) %>%
+    set_names(match_cols)%>%
+    # NA out some pre-review but incorrect data
+    mutate(
+      FchlugL_Med = ifelse(FchlugL_Med > 1000 | FchlugL_Med < 0, NA, FchlugL_Med),
+      pH_Med = ifelse(pH_Med < 7, NA, pH_Med),
+      ODOsat_med = ifelse(ODOsat_med < 50, NA, ODOsat_med),
+      RelativeFDOM_Med = ifelse(between(RelativeFDOM_Med,0,50), RelativeFDOM_Med, NA),
+      Sal_Med= ifelse(between(Sal_Med,5,35), Sal_Med, NA)
+    )%>%
+    mutate(
+      roll_mean = rollapply(WTemp_Med, width = 30, FUN = mean, fill = NA, align = "center", na.rm = TRUE),
+      roll_sd   = rollapply(WTemp_Med, width = 30, FUN = sd, fill = NA, align = "center", na.rm = TRUE),
+      WTemp_Med = ifelse(
+        abs(WTemp_Med - roll_mean) > 1.5 * roll_sd,
+        NA, WTemp_Med
+      )
+    ) %>%
+    select(-roll_mean, -roll_sd)%>%
+    mutate(
+      roll_mean = rollapply(pH_Med, width = 20, FUN = mean, fill = NA, align = "center", na.rm = TRUE),
+      roll_sd   = rollapply(pH_Med, width = 20, FUN = sd, fill = NA, align = "center", na.rm = TRUE),
+      pH_Med = ifelse(
+        abs(pH_Med - roll_mean) > 2 * roll_sd,
+        NA, pH_Med
+      )
+    )%>%
+    select(-roll_mean, -roll_sd)%>%
+    mutate(WTemp_Med = ifelse(WTemp_Med<18 & month(TIMESTAMP)>7,NA,WTemp_Med))
+  
+  # Rename columns
+  new_names <- c("Datetime", "Chl-a (µg/L)","Temperature (°C)", "DO (% saturation)", "pH", "Turbidity (FNU)", "Salinity (PSU)", "fDOM (RFU)")
+  if (station == "SHL") {
+    new_names <- c(new_names, "Nitrate + nitrate (µMol/L)")
+  }
+  
+  dat <- set_names(dat, new_names)
+  
+  # Assign to global environment
+  assign(station, dat, envir = .GlobalEnv)
+}
+
 #import each station
 importdata("SLM","1NRGzJTKUOb7MxyrFKvxwnaKX9sH_1Iij")
 importdata("SHL","1omJnHmqR4hi9tCvZKSkON0-UuqDI2OgW")
 importdata("SMB","10wL7cMNOli4lvygvcNw-y5gpESms31Tc")
+importdata("SMB","10wL7cMNOli4lvygvcNw-y5gpESms31Tc")
+importdata_ala("ALA","1xVmdjB9RtvTviaaWGQNfGGDixQ1dO1bq")
 
 SLM<-SLM%>%
   mutate("Nitrate + nitrate (µMol/L)" = NA)%>%
@@ -102,6 +167,9 @@ SMB<-SMB%>%
 
 SHL<-SHL%>%
   mutate(`Nitrate + nitrate (µMol/L)` = as.numeric(`Nitrate + nitrate (µMol/L)`))
+
+ALA<-ALA%>%
+  mutate("Nitrate + nitrate (µMol/L)" = NA)
 
 startdate<-min(as_date(SMB$Datetime),na.rm = TRUE)
 enddate<-max(as_date(SMB$Datetime),na.rm = TRUE)+1
@@ -135,7 +203,7 @@ ui <- fluidPage(
     sidebarPanel(
       "Click a station to change to that dataset",
       leafletOutput("siteMap", height = 200),
-      selectInput("site", "Select Dataset:", choices = c("SLM", "SHL", "SMB"), selected = "SMB"),
+      selectInput("site", "Select Dataset:", choices = c("SLM", "SHL", "SMB","ALA"), selected = "SMB"),
       selectInput("y", "Y-axis:", choices =c("Chl-a (µg/L)", "DO (% saturation)","Temperature (°C)", "pH", "Turbidity (FNU)", "Salinity (PSU)","Nitrate + nitrate (µMol/L)")),
       sliderInput("daterange", "Select Date Range:",
                   min = startdate,  # optional range limits
@@ -164,13 +232,14 @@ server <- function(input, output,session) {
     switch(input$site,
            "SLM" = SLM,
            "SHL" = SHL,
-           "SMB" = SMB)
+           "SMB" = SMB,
+           "ALA" = ALA)
   })
   
   output$siteMap <- renderLeaflet({
     leaflet() %>%
       addProviderTiles("CartoDB.Positron") %>%
-      setView(lng = -122.23, lat = 37.64, zoom = 10) %>%
+      setView(lng = -122.23, lat = 37.64, zoom = 9) %>%
       addCircleMarkers(data = coords,
                        radius = 8,
                        color = "blue",
