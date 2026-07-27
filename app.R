@@ -24,12 +24,13 @@ coords<-read.csv("MooredSensor_Coordinates.csv")%>%
 cache_dir <- "cache"
 if (!dir.exists(cache_dir)) dir.create(cache_dir)
 
-get_cached_path <- function(url, cache_name, max_age_mins = 15) {
+#loads whatever is cached instantly; only hits the network if there's no cache yet
+#or if force=TRUE (used by the manual "Update Data" button)
+get_cached_path <- function(url, cache_name, force = FALSE) {
   cache_path <- file.path(cache_dir, cache_name)
-  is_stale <- !file.exists(cache_path) ||
-    difftime(Sys.time(), file.info(cache_path)$mtime, units = "mins") > max_age_mins
+  needs_download <- force || !file.exists(cache_path)
 
-  if (is_stale) {
+  if (needs_download) {
     downloaded <- tryCatch({
       download.file(url, cache_path, quiet = TRUE, mode = "wb")
       TRUE
@@ -45,10 +46,10 @@ get_cached_path <- function(url, cache_name, max_age_mins = 15) {
 }
 
 #create function to import telemetry .dat files from each station google drive links and save to environment
-importdata <- function(station, file_id) {
+importdata <- function(station, file_id, force = FALSE) {
   # create google drive download link
   url <- paste0("https://drive.google.com/uc?export=download&id=", file_id)
-  cache_path <- get_cached_path(url, paste0(station, ".csv"))
+  cache_path <- get_cached_path(url, paste0(station, ".csv"), force = force)
 
   # Read and process
   dat <- read.csv(cache_path, skip = 1) %>%
@@ -111,10 +112,10 @@ importdata <- function(station, file_id) {
   assign(station, dat, envir = .GlobalEnv)
 }
 
-importdata_ala <- function(station, file_id) {
+importdata_ala <- function(station, file_id, force = FALSE) {
   # create google drive download link
   url <- paste0("https://drive.google.com/uc?export=download&id=", file_id)
-  cache_path <- get_cached_path(url, paste0(station, "_ala.csv"))
+  cache_path <- get_cached_path(url, paste0(station, "_ala.csv"), force = force)
 
   # Read and process
   dat <- read.csv(cache_path, skip = 1) %>%
@@ -175,24 +176,8 @@ importdata_ala <- function(station, file_id) {
   assign(station, dat, envir = .GlobalEnv)
 }
 
-#import each station
-#importdata("SLM","1NRGzJTKUOb7MxyrFKvxwnaKX9sH_1Iij")
-importdata("SLM","1vRG41vvds1uF-sSSZ7rCEv7J6H39h1Fh")
-importdata("SHL","1omJnHmqR4hi9tCvZKSkON0-UuqDI2OgW")
-importdata("SMB","10wL7cMNOli4lvygvcNw-y5gpESms31Tc")
-#importdata_ala("ALA","1xVmdjB9RtvTviaaWGQNfGGDixQ1dO1bq")
-importdata_ala("ALA","1Es6apaa7P19oZ0odi21xo_ugRDxcDaa1")
-SLM<-SLM%>%
-  mutate("Nitrate + nitrate (µMol/L)" = NA)%>%
-  mutate(across(
-    .cols = -Datetime,  # exclude timestamp
-    .fns = ~ ifelse(between(as_date(Datetime), as_date("2025-05-08"), as_date("2025-05-16")), NA, .)
-  ))
-
-SMB<-SMB%>%
-  mutate("Nitrate + nitrate (µMol/L)" = NA)
-
 #import and tack on old SHL data
+#(function defs only here; invocations live in load_all_stations() below)
 importolddata <- function(station, path) {
   dat <- read.csv(path, skip = 1) %>%
     # remove top row
@@ -256,23 +241,6 @@ importolddata <- function(station, path) {
   assign(paste0(station,"_old"), dat, envir = .GlobalEnv)
 }
 
-
-importolddata("SHL","SHL2_NWIS_Data.dat.backup")
-
-SHL<-SHL%>%
-  bind_rows(SHL_old)%>%
-  dplyr::distinct(Datetime,.keep_all = TRUE)%>%
-  arrange(Datetime)%>%
-  mutate(`Nitrate + nitrate (µMol/L)` = as.numeric(`Nitrate + nitrate (µMol/L)`))
-
-importolddata("SMB","SMB2_NWIS_Data.dat.backup")
-SMB<-SMB%>%
-  bind_rows(SMB_old)%>%
-  dplyr::distinct(Datetime,.keep_all = TRUE)%>%
-  arrange(Datetime)
-
-SLM<-SLM%>%
-  mutate(`Depth (m)`=as.numeric(`Depth (m)`))
 
 importolddata_ala <- function(station, file_id) {
   # Read and process
@@ -338,22 +306,64 @@ importolddata_ala <- function(station, file_id) {
   assign(paste0(station,"_old"), dat, envir = .GlobalEnv)
 }
 
-importolddata_ala("ALA","ALA_20260120_20260324.dat")
-ALA_old1<-ALA_old
-importolddata_ala("ALA","ALA_20260325_20260604.dat")
-ALA_old2<-ALA_old
-importolddata_ala("ALA","ALA_20260120_20260324(1).dat")
-ALA_old3<-ALA_old
-importolddata_ala("ALA","Copy of ALA2_ExoDirect1Data.dat")
-ALA_old4<-ALA_old
+#runs the full station data pipeline. force=TRUE re-downloads every station from
+#Google Drive regardless of what's cached (used by the manual "Update Data" button);
+#force=FALSE (the default, used at app startup) loads instantly from whatever is cached.
+load_all_stations <- function(force = FALSE) {
+  #import each station
+  importdata("SLM","1vRG41vvds1uF-sSSZ7rCEv7J6H39h1Fh", force = force)
+  importdata("SHL","1omJnHmqR4hi9tCvZKSkON0-UuqDI2OgW", force = force)
+  importdata("SMB","10wL7cMNOli4lvygvcNw-y5gpESms31Tc", force = force)
+  importdata_ala("ALA","1Es6apaa7P19oZ0odi21xo_ugRDxcDaa1", force = force)
 
-ALA_old<-bind_rows(ALA_old1,ALA_old2,ALA_old3,ALA_old4)
+  SLM<<-SLM%>%
+    mutate("Nitrate + nitrate (µMol/L)" = NA)%>%
+    mutate(across(
+      .cols = -Datetime,  # exclude timestamp
+      .fns = ~ ifelse(between(as_date(Datetime), as_date("2025-05-08"), as_date("2025-05-16")), NA, .)
+    ))
 
-ALA<-ALA%>%
-  bind_rows(ALA_old)%>%
-  dplyr::distinct(Datetime,.keep_all = TRUE)%>%
-  arrange(Datetime)%>%
-  mutate("Nitrate + nitrate (µMol/L)" = NA)
+  SMB<<-SMB%>%
+    mutate("Nitrate + nitrate (µMol/L)" = NA)
+
+  importolddata("SHL","SHL2_NWIS_Data.dat.backup")
+
+  SHL<<-SHL%>%
+    bind_rows(SHL_old)%>%
+    dplyr::distinct(Datetime,.keep_all = TRUE)%>%
+    arrange(Datetime)%>%
+    mutate(`Nitrate + nitrate (µMol/L)` = as.numeric(`Nitrate + nitrate (µMol/L)`))
+
+  importolddata("SMB","SMB2_NWIS_Data.dat.backup")
+  SMB<<-SMB%>%
+    bind_rows(SMB_old)%>%
+    dplyr::distinct(Datetime,.keep_all = TRUE)%>%
+    arrange(Datetime)
+
+  SLM<<-SLM%>%
+    mutate(`Depth (m)`=as.numeric(`Depth (m)`))
+
+  importolddata_ala("ALA","ALA_20260120_20260324.dat")
+  ALA_old1<-ALA_old
+  importolddata_ala("ALA","ALA_20260325_20260604.dat")
+  ALA_old2<-ALA_old
+  importolddata_ala("ALA","ALA_20260120_20260324(1).dat")
+  ALA_old3<-ALA_old
+  importolddata_ala("ALA","Copy of ALA2_ExoDirect1Data.dat")
+  ALA_old4<-ALA_old
+
+  ALA_old<-bind_rows(ALA_old1,ALA_old2,ALA_old3,ALA_old4)
+
+  ALA<<-ALA%>%
+    bind_rows(ALA_old)%>%
+    dplyr::distinct(Datetime,.keep_all = TRUE)%>%
+    arrange(Datetime)%>%
+    mutate("Nitrate + nitrate (µMol/L)" = NA)
+
+  assign("data_last_loaded", Sys.time(), envir = .GlobalEnv)
+}
+
+load_all_stations(force = FALSE)
 
 startdate<-min(as_date(SHL$Datetime),na.rm = TRUE)
 enddate<-max(as_date(SHL$Datetime),na.rm = TRUE)+1
@@ -388,6 +398,11 @@ ui <- function(request) {
     sidebarPanel(
       "Click a station to change to that dataset",
       leafletOutput("siteMap", height = 200),
+      fluidRow(
+        column(8, textOutput("dataAge")),
+        column(4, actionButton("refreshData", "Update Data", width = "100%"))
+      ),
+      br(),
       selectInput("site", "Select Dataset:", choices = c("SLM", "SHL", "SMB","ALA"), selected = "SMB"),
       selectInput("y", "Y-axis:", choices =c("Chl-a (µg/L)", "DO (% saturation)","Temperature (°C)", "pH", "Turbidity (FNU)", "Salinity (PSU)","Nitrate + nitrate (µMol/L)","Depth (m)")),
       sliderInput("daterange", "Select Date Range:",
@@ -425,14 +440,28 @@ ui <- function(request) {
 }
 
 server <- function(input, output,session) {
+  data_last_loaded_r <- reactiveVal(data_last_loaded)
+
+  observeEvent(input$refreshData, {
+    withProgress(message = "Downloading latest data...", {
+      load_all_stations(force = TRUE)
+    })
+    data_last_loaded_r(get("data_last_loaded", envir = .GlobalEnv))
+  })
+
+  output$dataAge <- renderText({
+    paste("Data as of:", format(data_last_loaded_r(), "%Y-%m-%d %I:%M %p"))
+  })
+
   selected_data <- reactive({
+    data_last_loaded_r()  # take a dependency so a refresh redraws the plot
     switch(input$site,
            "SLM" = SLM,
            "SHL" = SHL,
            "SMB" = SMB,
            "ALA" = ALA)
   })
-  
+
   output$siteMap <- renderLeaflet({
     leaflet() %>%
       addProviderTiles("CartoDB.Positron") %>%
