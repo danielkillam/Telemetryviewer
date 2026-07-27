@@ -365,8 +365,8 @@ load_all_stations <- function(force = FALSE) {
 
 load_all_stations(force = FALSE)
 
-startdate<-min(as_date(SHL$Datetime),na.rm = TRUE)
-enddate<-max(as_date(SHL$Datetime),na.rm = TRUE)+1
+startdate<-min(as_date(c(SLM$Datetime, SHL$Datetime, SMB$Datetime, ALA$Datetime)),na.rm = TRUE)
+enddate<-max(as_date(c(SLM$Datetime, SHL$Datetime, SMB$Datetime, ALA$Datetime)),na.rm = TRUE)+1
 
 ui <- function(request) {
   fluidPage(
