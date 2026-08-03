@@ -20,39 +20,13 @@ coords<-read.csv("MooredSensor_Coordinates.csv")%>%
   st_as_sf(coords= c(x="Longitude",y="Latitude"),crs=4269)
 
 
-#cache google drive downloads locally so repeated app restarts don't re-download every station's data
-cache_dir <- "cache"
-if (!dir.exists(cache_dir)) dir.create(cache_dir)
-
-#loads whatever is cached instantly; only hits the network if there's no cache yet
-#or if force=TRUE (used by the manual "Update Data" button)
-get_cached_path <- function(url, cache_name, force = FALSE) {
-  cache_path <- file.path(cache_dir, cache_name)
-  needs_download <- force || !file.exists(cache_path)
-
-  if (needs_download) {
-    downloaded <- tryCatch({
-      download.file(url, cache_path, quiet = TRUE, mode = "wb")
-      TRUE
-    }, error = function(e) {
-      message("Download failed for ", cache_name, ", using cached copy if available: ", conditionMessage(e))
-      FALSE
-    })
-    if (!downloaded && !file.exists(cache_path)) {
-      stop("No cached data available for ", cache_name, " and download failed.")
-    }
-  }
-  cache_path
-}
-
 #create function to import telemetry .dat files from each station google drive links and save to environment
-importdata <- function(station, file_id, force = FALSE) {
+importdata <- function(station, file_id) {
   # create google drive download link
   url <- paste0("https://drive.google.com/uc?export=download&id=", file_id)
-  cache_path <- get_cached_path(url, paste0(station, ".csv"), force = force)
 
   # Read and process
-  dat <- read.csv(cache_path, skip = 1) %>%
+  dat <- read.csv(url, skip = 1) %>%
     # remove top row
     slice(-c(1:2)) %>%
     # PST datetime
@@ -112,13 +86,12 @@ importdata <- function(station, file_id, force = FALSE) {
   assign(station, dat, envir = .GlobalEnv)
 }
 
-importdata_ala <- function(station, file_id, force = FALSE) {
+importdata_ala <- function(station, file_id) {
   # create google drive download link
   url <- paste0("https://drive.google.com/uc?export=download&id=", file_id)
-  cache_path <- get_cached_path(url, paste0(station, "_ala.csv"), force = force)
 
   # Read and process
-  dat <- read.csv(cache_path, skip = 1) %>%
+  dat <- read.csv(url, skip = 1) %>%
     # remove top row
     slice(-c(1:2)) %>%
     # PST datetime
@@ -306,15 +279,14 @@ importolddata_ala <- function(station, file_id) {
   assign(paste0(station,"_old"), dat, envir = .GlobalEnv)
 }
 
-#runs the full station data pipeline. force=TRUE re-downloads every station from
-#Google Drive regardless of what's cached (used by the manual "Update Data" button);
-#force=FALSE (the default, used at app startup) loads instantly from whatever is cached.
-load_all_stations <- function(force = FALSE) {
+#runs the full station data pipeline, always pulling the latest data from Google Drive
+load_all_stations <- function() {
   #import each station
-  importdata("SLM","1vRG41vvds1uF-sSSZ7rCEv7J6H39h1Fh", force = force)
-  importdata("SHL","1omJnHmqR4hi9tCvZKSkON0-UuqDI2OgW", force = force)
-  importdata("SMB","10wL7cMNOli4lvygvcNw-y5gpESms31Tc", force = force)
-  importdata_ala("ALA","1Es6apaa7P19oZ0odi21xo_ugRDxcDaa1", force = force)
+  importdata("SLM","1vRG41vvds1uF-sSSZ7rCEv7J6H39h1Fh")
+  importdata("SHL","1omJnHmqR4hi9tCvZKSkON0-UuqDI2OgW")
+  importdata("SMB","10wL7cMNOli4lvygvcNw-y5gpESms31Tc")
+  importdata_ala("ALA","1Es6apaa7P19oZ0odi21xo_ugRDxcDaa1")
+
 
   SLM<<-SLM%>%
     mutate("Nitrate + nitrate (µMol/L)" = NA)%>%
@@ -359,11 +331,9 @@ load_all_stations <- function(force = FALSE) {
     dplyr::distinct(Datetime,.keep_all = TRUE)%>%
     arrange(Datetime)%>%
     mutate("Nitrate + nitrate (µMol/L)" = NA)
-
-  assign("data_last_loaded", Sys.time(), envir = .GlobalEnv)
 }
 
-load_all_stations(force = FALSE)
+load_all_stations()
 
 startdate<-min(as_date(c(SLM$Datetime, SHL$Datetime, SMB$Datetime, ALA$Datetime)),na.rm = TRUE)
 enddate<-max(as_date(c(SLM$Datetime, SHL$Datetime, SMB$Datetime, ALA$Datetime)),na.rm = TRUE)+1
@@ -398,11 +368,6 @@ ui <- function(request) {
     sidebarPanel(
       "Click a station to change to that dataset",
       leafletOutput("siteMap", height = 200),
-      fluidRow(
-        column(8, textOutput("dataAge")),
-        column(4, actionButton("refreshData", "Update Data", width = "100%"))
-      ),
-      br(),
       selectInput("site", "Select Dataset:", choices = c("SLM", "SHL", "SMB","ALA"), selected = "SMB"),
       selectInput("y", "Y-axis:", choices =c("Chl-a (µg/L)", "DO (% saturation)","Temperature (°C)", "pH", "Turbidity (FNU)", "Salinity (PSU)","Nitrate + nitrate (µMol/L)","Depth (m)")),
       sliderInput("daterange", "Select Date Range:",
@@ -440,21 +405,7 @@ ui <- function(request) {
 }
 
 server <- function(input, output,session) {
-  data_last_loaded_r <- reactiveVal(data_last_loaded)
-
-  observeEvent(input$refreshData, {
-    withProgress(message = "Downloading latest data...", {
-      load_all_stations(force = TRUE)
-    })
-    data_last_loaded_r(get("data_last_loaded", envir = .GlobalEnv))
-  })
-
-  output$dataAge <- renderText({
-    paste("Data as of:", format(data_last_loaded_r(), "%Y-%m-%d %I:%M %p"))
-  })
-
   selected_data <- reactive({
-    data_last_loaded_r()  # take a dependency so a refresh redraws the plot
     switch(input$site,
            "SLM" = SLM,
            "SHL" = SHL,
