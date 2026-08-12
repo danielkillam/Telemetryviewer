@@ -315,16 +315,19 @@ load_all_stations <- function() {
   SLM<<-SLM%>%
     mutate(`Depth (m)`=as.numeric(`Depth (m)`))
 
-  importolddata_ala("ALA","ALA_20260120_20260324.dat")
+  importolddata_ala("ALA","Patched_Data/ALA_20260120_20260324.dat")
   ALA_old1<-ALA_old
-  importolddata_ala("ALA","ALA_20260325_20260604.dat")
+  importolddata_ala("ALA","Patched_Data/ALA_20260325_20260604.dat")
   ALA_old2<-ALA_old
-  importolddata_ala("ALA","ALA_20260120_20260324(1).dat")
+  importolddata_ala("ALA","Patched_Data/ALA_20260120_20260324(1).dat")
   ALA_old3<-ALA_old
-  importolddata_ala("ALA","Copy of ALA2_ExoDirect1Data.dat")
+  importolddata_ala("ALA","Patched_Data/Copy of ALA2_ExoDirect1Data.dat")
   ALA_old4<-ALA_old
-
-  ALA_old<-bind_rows(ALA_old1,ALA_old2,ALA_old3,ALA_old4)
+  importolddata_ala("ALA","Patched_Data/ALA_patch_20260406_20260720.csv")
+  ALA_old5<-ALA_old
+  importolddata_ala("ALA","Patched_Data/ALA_patch_20260724_20260728.csv")
+  ALA_old6<-ALA_old
+  ALA_old<-bind_rows(ALA_old1,ALA_old2,ALA_old3,ALA_old4,ALA_old5,ALA_old6)
 
   ALA<<-ALA%>%
     bind_rows(ALA_old)%>%
