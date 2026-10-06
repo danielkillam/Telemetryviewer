@@ -452,7 +452,7 @@ server <- function(input, output,session) {
     # --- Primary Plot (p1) ---
     p1 <- ggplot(filtered, aes(x = Datetime, y = .data[[input$y]])) +
       geom_line(color = "steelblue") +
-      labs(x = element_blank(), y = input$y) +
+      labs(x = NULL, y = input$y) +
       theme_minimal()
     
     if (!is.na(input$ymin) || !is.na(input$ymax)) {
@@ -463,7 +463,7 @@ server <- function(input, output,session) {
     if (input$y2 != "None") {
       p2 <- ggplot(filtered, aes(x = Datetime, y = .data[[input$y2]])) +
         geom_line(color = "darkred") +
-        labs(x = element_blank(), y = input$y2) +
+        labs(x = NULL, y = input$y2) +
         theme_minimal()
       
       # Apply limits to the secondary plot
