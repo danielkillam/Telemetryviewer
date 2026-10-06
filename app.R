@@ -373,11 +373,20 @@ ui <- function(request) {
       leafletOutput("siteMap", height = 200),
       selectInput("site", "Select Dataset:", choices = c("SLM", "SHL", "SMB","ALA"), selected = "SMB"),
       selectInput("y", "Y-axis:", choices =c("Chl-a (µg/L)", "DO (% saturation)","Temperature (°C)", "pH", "Turbidity (FNU)", "Salinity (PSU)","Nitrate + nitrate (µMol/L)","Depth (m)")),
-      sliderInput("daterange", "Select Date Range:",
-                  min = startdate,  # optional range limits
-                  max = enddate,
-                  value = c(enddate - 14, enddate),
-                  timeFormat = "%Y-%m-%d"),
+      dateRangeInput("daterange", "Select Date Range:",
+                     start = enddate - 14,
+                     end = enddate,
+                     min = startdate,
+                     max = enddate,
+                     format = "yyyy-mm-dd"),
+      # quick presets, each ending at the most recent data
+      div(style = "margin-top: -10px; margin-bottom: 15px;",
+          actionButton("preset_7",   "7d",  class = "btn-xs"),
+          actionButton("preset_14",  "14d", class = "btn-xs"),
+          actionButton("preset_30",  "30d", class = "btn-xs"),
+          actionButton("preset_90",  "90d", class = "btn-xs"),
+          actionButton("preset_365", "1y",  class = "btn-xs"),
+          actionButton("preset_all", "All", class = "btn-xs")),
       selectInput("y2", "Second Y-axis (optional):",
                   choices = c("None", "Chl-a (µg/L)", "DO (% saturation)",
                               "Temperature (°C)", "pH", "Turbidity (FNU)",
@@ -438,16 +447,38 @@ server <- function(input, output,session) {
     site_clicked <- input$siteMap_marker_click$id
     updateSelectInput(session, "site", selected = site_clicked)
   })
-  
+
+  # date range presets
+  for (n in c(7, 14, 30, 90, 365)) {
+    local({
+      days <- n
+      observeEvent(input[[paste0("preset_", days)]], {
+        updateDateRangeInput(session, "daterange", start = enddate - days, end = enddate)
+      })
+    })
+  }
+
+  # "All" covers the selected site's full record
+  observeEvent(input$preset_all, {
+    updateDateRangeInput(session, "daterange",
+                         start = min(as_date(selected_data()$Datetime), na.rm = TRUE),
+                         end = enddate)
+  })
+
+  # keep preset button clicks out of bookmarks so they don't override the restored range
+  setBookmarkExclude(c(paste0("preset_", c(7, 14, 30, 90, 365)), "preset_all"))
+
   
   output$dataPlot <- renderPlotly({
     data <- selected_data()
     
-    start_date <- as.Date(input$daterange[1], origin = "1970-01-01")
-    end_date   <- as.Date(input$daterange[2], origin = "1970-01-01")
-    
+    req(input$daterange[1], input$daterange[2])
+    start_date <- input$daterange[1]
+    end_date   <- input$daterange[2]
+
+    # inclusive of the whole end day
     filtered <- data %>%
-      filter(Datetime >= start_date & Datetime <= end_date)
+      filter(between(as_date(Datetime), start_date, end_date))
     
     # --- Primary Plot (p1) ---
     p1 <- ggplot(filtered, aes(x = Datetime, y = .data[[input$y]])) +
