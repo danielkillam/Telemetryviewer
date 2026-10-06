@@ -418,7 +418,7 @@ server <- function(input, output,session) {
 
   output$siteMap <- renderLeaflet({
     leaflet() %>%
-      addProviderTiles("CartoDB.Positron") %>%
+      addProviderTiles('Esri.WorldGrayCanvas') %>% 
       setView(lng = -122.23, lat = 37.64, zoom = 9) %>%
       addCircleMarkers(data = coords,
                        radius = 8,
