@@ -336,10 +336,49 @@ load_all_stations <- function() {
     mutate("Nitrate + nitrate (µMol/L)" = NA)
 }
 
-load_all_stations()
+#cache of the fully processed station data, so startup skips the download + cleanup pipeline
+#(rsconnect bundles this file on deploy even though it's gitignored)
+cache_file <- "cache/station_data.rds"
 
-startdate<-min(as_date(c(SLM$Datetime, SHL$Datetime, SMB$Datetime, ALA$Datetime)),na.rm = TRUE)
-enddate<-max(as_date(c(SLM$Datetime, SHL$Datetime, SMB$Datetime, ALA$Datetime)),na.rm = TRUE)+1
+save_cache <- function() {
+  #write to a temp file then rename it into place, so a session starting mid-save
+  #never reads a half-written cache
+  tmp_file <- paste0(cache_file, ".tmp")
+  tryCatch({
+    dir.create(dirname(cache_file), showWarnings = FALSE)
+    saveRDS(list(SLM = SLM, SHL = SHL, SMB = SMB, ALA = ALA), tmp_file)
+    if (!file.rename(tmp_file, cache_file)) stop("rename failed")
+  }, error = function(e) {
+    unlink(tmp_file)
+    message("Could not write cache: ", conditionMessage(e))
+  })
+}
+
+#returns TRUE if cached data was loaded into the global environment
+load_cache <- function() {
+  cached <- tryCatch(readRDS(cache_file), error = function(e) NULL)
+  if (is.null(cached)) return(FALSE)
+  list2env(cached, envir = .GlobalEnv)
+  TRUE
+}
+
+#date limits for the date picker, recomputed whenever the data changes
+set_date_bounds <- function() {
+  all_dates <- c(SLM$Datetime, SHL$Datetime, SMB$Datetime, ALA$Datetime)
+  startdate <<- min(as_date(all_dates), na.rm = TRUE)
+  enddate   <<- max(as_date(all_dates), na.rm = TRUE) + 1
+  data_through <<- max(all_dates, na.rm = TRUE)
+}
+
+#use the cache if there is one; otherwise build from scratch and cache it
+if (!load_cache()) {
+  load_all_stations()
+  save_cache()
+}
+set_date_bounds()
+
+#shared across sessions so every open view redraws when anyone updates the data
+data_version <- reactiveVal(0)
 
 ui <- function(request) {
   fluidPage(
@@ -371,6 +410,10 @@ ui <- function(request) {
     sidebarPanel(
       "Click a station to change to that dataset",
       leafletOutput("siteMap", height = 200),
+      fluidRow(style = "margin-top: 8px; margin-bottom: 8px;",
+        column(7, textOutput("dataAge")),
+        column(5, actionButton("refreshData", "Update Data", class = "btn-sm", width = "100%"))
+      ),
       selectInput("site", "Select Dataset:", choices = c("SLM", "SHL", "SMB","ALA"), selected = "SMB"),
       selectInput("y", "Y-axis:", choices =c("Chl-a (µg/L)", "DO (% saturation)","Temperature (°C)", "pH", "Turbidity (FNU)", "Salinity (PSU)","Nitrate + nitrate (µMol/L)","Depth (m)")),
       dateRangeInput("daterange", "Select Date Range:",
@@ -418,6 +461,7 @@ ui <- function(request) {
 
 server <- function(input, output,session) {
   selected_data <- reactive({
+    data_version()  # redraw after a data update
     switch(input$site,
            "SLM" = SLM,
            "SHL" = SHL,
@@ -465,8 +509,43 @@ server <- function(input, output,session) {
                          end = enddate)
   })
 
-  # keep preset button clicks out of bookmarks so they don't override the restored range
-  setBookmarkExclude(c(paste0("preset_", c(7, 14, 30, 90, 365)), "preset_all"))
+  output$dataAge <- renderText({
+    data_version()
+    paste("Data through", format(data_through, "%Y-%m-%d %H:%M"))
+  })
+
+  # pull the latest data from Google Drive, then refresh the cache
+  observeEvent(input$refreshData, {
+    ok <- withProgress(message = "Downloading latest data...", value = 0.5, {
+      tryCatch({
+        load_all_stations()
+        TRUE
+      }, error = function(e) {
+        showNotification(paste("Update failed:", conditionMessage(e)), type = "error", duration = 10)
+        FALSE
+      })
+    })
+
+    if (!ok) {
+      # a partial update can leave stations half-processed, so fall back to the cached copy
+      load_cache()
+      return()
+    }
+
+    save_cache()
+    set_date_bounds()
+    # move this view's end date forward to include the new data
+    updateDateRangeInput(session, "daterange", end = enddate, max = enddate)
+    data_version(data_version() + 1)
+  })
+
+  # other open sessions get the new date limit too
+  observeEvent(data_version(), {
+    updateDateRangeInput(session, "daterange", max = enddate)
+  }, ignoreInit = TRUE)
+
+  # keep button clicks out of bookmarks so they don't replay when a bookmark is opened
+  setBookmarkExclude(c(paste0("preset_", c(7, 14, 30, 90, 365)), "preset_all", "refreshData"))
 
   
   output$dataPlot <- renderPlotly({
