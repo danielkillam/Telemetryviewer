@@ -510,8 +510,7 @@ server <- function(input, output,session) {
   })
 
   output$dataAge <- renderText({
-    data_version()
-    paste("Data through", format(data_through, "%Y-%m-%d %H:%M"))
+    paste0("Data through ", format(data_through, "%Y-%m-%d %H:%M"),". New data available every 4 hours")
   })
 
   # pull the latest data from Google Drive, then refresh the cache
