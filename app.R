@@ -20,13 +20,28 @@ coords<-read.csv("MooredSensor_Coordinates.csv")%>%
   st_as_sf(coords= c(x="Longitude",y="Latitude"),crs=4269)
 
 
+#download a google drive file to a temp file, retrying since drive intermittently refuses
+#requests from the hosted server; returns the temp file path
+download_drive_file <- function(file_id) {
+  # direct download host (drive.google.com/uc just redirects here); confirm=t skips the virus-scan page
+  url <- paste0("https://drive.usercontent.google.com/download?export=download&confirm=t&id=", file_id)
+  tmp <- tempfile(fileext = ".dat")
+  resp <- httr::RETRY("GET", url, httr::write_disk(tmp, overwrite = TRUE),
+                      times = 4, pause_base = 2, pause_cap = 20, quiet = TRUE)
+  if (httr::http_error(resp)) {
+    unlink(tmp)
+    stop("Google Drive returned HTTP ", httr::status_code(resp), " for file ", file_id)
+  }
+  tmp
+}
+
 #create function to import telemetry .dat files from each station google drive links and save to environment
 importdata <- function(station, file_id) {
-  # create google drive download link
-  url <- paste0("https://drive.google.com/uc?export=download&id=", file_id)
+  path <- download_drive_file(file_id)
+  on.exit(unlink(path))
 
   # Read and process
-  dat <- read.csv(url, skip = 1) %>%
+  dat <- read.csv(path, skip = 1) %>%
     # remove top row
     slice(-c(1:2)) %>%
     # PST datetime
@@ -87,11 +102,11 @@ importdata <- function(station, file_id) {
 }
 
 importdata_ala <- function(station, file_id) {
-  # create google drive download link
-  url <- paste0("https://drive.google.com/uc?export=download&id=", file_id)
+  path <- download_drive_file(file_id)
+  on.exit(unlink(path))
 
   # Read and process
-  dat <- read.csv(url, skip = 1) %>%
+  dat <- read.csv(path, skip = 1) %>%
     # remove top row
     slice(-c(1:2)) %>%
     # PST datetime
