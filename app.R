@@ -86,8 +86,7 @@ importdata <- function(station, file_id) {
         NA, pH_Med
       )
     )%>%
-    select(-roll_mean, -roll_sd)%>%
-    mutate(WTemp_Med = ifelse(WTemp_Med<18 & month(TIMESTAMP)>7,NA,WTemp_Med))
+    select(-roll_mean, -roll_sd)
   
   # Rename columns
   new_names <- c("Datetime", "Chl-a (µg/L)","Temperature (°C)", "DO (% saturation)", "pH", "Turbidity (FNU)", "Salinity (PSU)", "fDOM (RFU)","Depth (m)")
